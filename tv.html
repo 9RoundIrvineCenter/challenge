@@ -14,7 +14,6 @@
   <div id="loadingOverlay">
     <img src="images/logo-white-9r.png" id="loadingLogo" alt="Loading Logo">
   </div>
-  </div>
   <div id="top-bar"></div>  <!-- Added for demonstration, adjust as needed -->
 
   <script>
@@ -23,6 +22,11 @@
     
     let currentFrame = 'sheetFrame';
     let nextFrame = 'sheetFrame2';
+    let refreshToken = 0;
+    // The logo is a short cover, not a wait for Google. The published
+    // sheet often loads slowly or never fires iframe onload, which left
+    // the overlay up for the whole request.
+    const LOGO_MS = 700;
   
     function shouldRefresh() {
       const now = new Date();
@@ -35,44 +39,52 @@
         return hour >= 8 && hour < 18;
       }
     }
+
+    function hideLogo(loadingOverlay) {
+      loadingOverlay.classList.remove('displayed');
+      loadingOverlay.style.pointerEvents = 'none';
+    }
   
     function softRefresh() {
-      if (shouldRefresh()) {
-        const loadingOverlay = document.getElementById('loadingOverlay');
-        const current = document.getElementById(currentFrame);
-        const next = document.getElementById(nextFrame);
-        
-        // Show the overlay first
-        loadingOverlay.classList.add('displayed');
-        loadingOverlay.style.pointerEvents = 'auto';
-        
-        // Load new content in the background
-        const url = new URL(next.src);
-        url.searchParams.set('t', new Date().getTime()); // Cache busting
-        next.src = url.href;
-        next.style.opacity = '0'; // Keep new content invisible until ready
-        next.style.display = 'block';
-        
-        next.onload = () => {
-          // Logo has appeared, now transition to new iframe
-          setTimeout(() => {
-            current.style.opacity = '0'; // Fade out the current iframe
-            next.style.opacity = '1'; // Fade in the new iframe
-            
-            // After iframe transition, fade out overlay
-            setTimeout(() => {
-              loadingOverlay.classList.remove('displayed');
-              loadingOverlay.style.pointerEvents = 'none';
-              current.style.display = 'none';
-              
-              // Swap frame identifiers for next refresh
-              let temp = currentFrame;
-              currentFrame = nextFrame;
-              nextFrame = temp;
-            }, 250); // Match with iframe transition duration
-          }, 250); // Wait for logo to fully appear before switching
-        };
-      }
+      if (!shouldRefresh()) return;
+
+      const token = ++refreshToken;
+      const loadingOverlay = document.getElementById('loadingOverlay');
+      const current = document.getElementById(currentFrame);
+      const next = document.getElementById(nextFrame);
+
+      const url = new URL(next.src);
+      url.searchParams.set('t', String(Date.now())); // Cache busting
+
+      next.style.opacity = '0';
+      next.style.display = 'block';
+
+      loadingOverlay.classList.add('displayed');
+      loadingOverlay.style.pointerEvents = 'auto';
+      const logoTimer = setTimeout(function() {
+        if (token !== refreshToken) return;
+        hideLogo(loadingOverlay);
+      }, LOGO_MS);
+
+      // Attach before src so a fast load cannot be missed.
+      next.onload = function() {
+        if (token !== refreshToken) return;
+        clearTimeout(logoTimer);
+        hideLogo(loadingOverlay);
+        current.style.opacity = '0';
+        next.style.opacity = '1';
+
+        setTimeout(function() {
+          if (token !== refreshToken) return;
+          current.style.display = 'none';
+          current.style.opacity = '0';
+          const temp = currentFrame;
+          currentFrame = nextFrame;
+          nextFrame = temp;
+        }, 200);
+      };
+
+      next.src = url.href;
     }
   
     setInterval(softRefresh, 60000); // 60000 milliseconds = 1 minute
